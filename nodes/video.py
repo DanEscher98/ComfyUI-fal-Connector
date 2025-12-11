@@ -448,12 +448,135 @@ class WanTextToVideo_fal(FalVideoModelNode):
         return video_path
 
 
+class ViduReferenceToVideo_fal(FalVideoModelNode):
+    """
+    Vidu Q1 Reference-to-Video generation.
+
+    Generate videos with consistent subjects from reference images.
+    Supports up to 7 reference images for character/object consistency.
+    Uses fal-ai/vidu/q1/reference-to-video endpoint.
+    """
+
+    ENDPOINT = "fal-ai/vidu/q1/reference-to-video"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "prompt": ("STRING", {
+                    "multiline": True,
+                    "default": "",
+                    "tooltip": "Description of the video to generate (max 1500 chars)"
+                }),
+                "reference_image": ("IMAGE", {
+                    "tooltip": "Primary reference image for subject consistency"
+                }),
+            },
+            "optional": {
+                "reference_image_2": ("IMAGE", {
+                    "tooltip": "Additional reference image (optional)"
+                }),
+                "reference_image_3": ("IMAGE", {
+                    "tooltip": "Additional reference image (optional)"
+                }),
+                "aspect_ratio": (["16:9", "9:16", "1:1"], {
+                    "default": "16:9"
+                }),
+                "movement_amplitude": (["auto", "small", "medium", "large"], {
+                    "default": "auto",
+                    "tooltip": "Movement intensity of objects in the video"
+                }),
+                "bgm": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Add background music to the video"
+                }),
+                "seed": ("INT", {
+                    "default": 0,
+                    "min": 0,
+                    "max": 2147483647,
+                    "tooltip": "Random seed (0 for random)"
+                }),
+            }
+        }
+
+    RETURN_TYPES = ("VIDEO", "STRING")
+    RETURN_NAMES = ("video", "video_url")
+    FUNCTION = "generate"
+    OUTPUT_NODE = False
+
+    def generate(
+        self,
+        prompt: str,
+        reference_image: torch.Tensor,
+        reference_image_2: Optional[torch.Tensor] = None,
+        reference_image_3: Optional[torch.Tensor] = None,
+        aspect_ratio: str = "16:9",
+        movement_amplitude: str = "auto",
+        bgm: bool = False,
+        seed: int = 0,
+    ) -> Tuple[Any, str]:
+        """Generate video with consistent subjects using Vidu Q1."""
+
+        # Upload reference images
+        reference_urls = [upload_image_tensor(reference_image)]
+
+        if reference_image_2 is not None:
+            reference_urls.append(upload_image_tensor(reference_image_2))
+
+        if reference_image_3 is not None:
+            reference_urls.append(upload_image_tensor(reference_image_3))
+
+        # Build payload
+        payload: dict[str, Any] = {
+            "prompt": prompt[:1500],  # Max 1500 chars
+            "reference_image_urls": reference_urls,
+            "aspect_ratio": aspect_ratio,
+            "movement_amplitude": movement_amplitude,
+            "bgm": bgm,
+        }
+
+        if seed > 0:
+            payload["seed"] = seed
+
+        # Run the model
+        result = self.run_model(payload)
+
+        # Get video URL
+        video_data = result.get("video", {})
+        video_url = video_data.get("url", "")
+
+        if not video_url:
+            raise ValueError("No video URL in response")
+
+        # Download and save
+        _, video_bytes = download_video(video_url)
+        video_path = self._save_video(video_bytes, "vidu_ref")
+
+        return (video_path, video_url)
+
+    def _save_video(self, video_bytes: bytes, prefix: str) -> str:
+        """Save video bytes to output folder."""
+        output_dir = folder_paths.get_output_directory()
+        video_dir = os.path.join(output_dir, "fal_videos")
+        os.makedirs(video_dir, exist_ok=True)
+
+        import time
+        filename = f"{prefix}_{int(time.time())}.mp4"
+        video_path = os.path.join(video_dir, filename)
+
+        with open(video_path, "wb") as f:
+            f.write(video_bytes)
+
+        return video_path
+
+
 # Node mappings
 FAL_VIDEO_NODES = {
     "LumaImageToVideo_fal": LumaImageToVideo_fal,
     "KlingImageToVideo_fal": KlingImageToVideo_fal,
     "MinimaxImageToVideo_fal": MinimaxImageToVideo_fal,
     "WanTextToVideo_fal": WanTextToVideo_fal,
+    "ViduReferenceToVideo_fal": ViduReferenceToVideo_fal,
 }
 
 FAL_VIDEO_DISPLAY_NAMES = {
@@ -461,4 +584,5 @@ FAL_VIDEO_DISPLAY_NAMES = {
     "KlingImageToVideo_fal": "Kling Image to Video (fal.ai)",
     "MinimaxImageToVideo_fal": "MiniMax Image to Video (fal.ai)",
     "WanTextToVideo_fal": "WAN Text to Video (fal.ai)",
+    "ViduReferenceToVideo_fal": "Vidu Reference to Video (fal.ai)",
 }
