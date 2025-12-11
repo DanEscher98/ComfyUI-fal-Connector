@@ -1,4 +1,7 @@
-fal-client>=0.3.0
-httpx
+fal-client>=0.5.0
+httpx>=0.25.0
 httpx-sse
 fal
+requests>=2.31.0
+numpy>=1.24.0
+Pillow>=10.0.0
